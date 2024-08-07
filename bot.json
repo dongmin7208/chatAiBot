@@ -1,0 +1,15 @@
+{
+    "main": "일생쓰2.js",
+    "option": {
+        "apiLevel": 1,
+        "useUnifiedParams": false,
+        "useBabel": false,
+        "scriptPower": true,
+        "targetMessengers": {
+            "com.facebook.orca": false,
+            "com.kakao.talk": true
+        },
+        "optimization": 0,
+        "offOnRuntimeError": true
+    }
+}
