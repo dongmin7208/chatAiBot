@@ -147,11 +147,14 @@ function fetchStockPriceTwelveData(companySymbol) {
   }
 }
 function getStockSymbolFromMessage(msg) {
-  const stockMap = require('stockMap').stockMap;
-  for (var company in stockMap) {
+  let stockMap = require('stockMap').stockMap;
+  let stockKeys = Object.keys(stockMap);
+
+  for (let i = 0; i < stockKeys.length; i++) {
+    let company = stockKeys[i];
     if (
-      (msg.includes(company) && msg.includes('주식')) ||
-      msg.includes('얼마쓰')
+      msg.includes(company) &&
+      (msg.includes('주식') || msg.includes('얼마쓰'))
     ) {
       return stockMap[company];
     }
@@ -339,38 +342,61 @@ function getSuffix(nickname) {
 
 // 지진 정보 가져오기
 function fetchEarthquakeInfo(index) {
-  const url = 'https://api.p2pquake.net/v2/jma/quake';
+  const url = 'https://www.jma.go.jp/bosai/quake/data/list.json';
   try {
     const response = org.jsoup.Jsoup.connect(url)
       .ignoreContentType(true)
       .execute()
       .body();
     const jsonResponse = JSON.parse(response);
+
     if (jsonResponse.length > index) {
       const quake = jsonResponse[index];
-      const earthquake = quake.earthquake;
-      const location = earthquake.hypocenter.name;
+      const location = quake.anm; // 일본어 지역명
       const translatedLocation = translateText('KO', location);
-      const latitude = earthquake.hypocenter.latitude;
-      const longitude = earthquake.hypocenter.longitude;
-      const magnitude = earthquake.hypocenter.magnitude;
-      const depth = earthquake.hypocenter.depth;
-      const time = new Date(earthquake.time);
-      const currentTime = new Date();
-      const domesticTsunami = earthquake.domesticTsunami;
-      const foreignTsunami = earthquake.foreignTsunami;
+      const magnitude = quake.mag;
+      // const maxIntensity = quake.maxi;
+      const depth = parseInt(quake.acd, 10) / 1000; // 깊이를 km로 변환
+      const occurrenceTime = new Date(quake.at); // 발생 시간
+      const reportTime = new Date(quake.rdt); // 보고 시간
 
-      const timeDifference = Math.abs(currentTime - time) / (1000 * 60);
-
-      if (timeDifference < 5) {
-        return '일생쓰';
-      }
+      // cod에서 위도와 경도를 추출
+      const latitudeMatch = quake.cod.match(/\+([\d.]+)/);
+      const longitudeMatch = quake.cod.match(/\+([\d.]+)/g);
+      const latitude = latitudeMatch ? latitudeMatch[1] : 'Unknown';
+      const longitude = longitudeMatch
+        ? longitudeMatch[1].replace('+', '')
+        : 'Unknown';
 
       const googleMapUrl =
         'https://www.google.com/maps/search/?api=1&query=' +
         latitude +
         ',' +
         longitude;
+
+      // 시간을 보기 좋게 포맷팅하는 함수
+      function formatTime(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        return (
+          year +
+          '/' +
+          month +
+          '/' +
+          day +
+          ' ' +
+          hours +
+          ':' +
+          minutes +
+          ':' +
+          seconds
+        );
+      }
+
       return (
         '‼️지진 정보‼️\n' +
         '지역: ' +
@@ -382,16 +408,13 @@ function fetchEarthquakeInfo(index) {
         magnitude +
         '도\n' +
         '깊이: ' +
-        depth +
+        depth.toFixed(2) +
         'km\n' +
-        '시간: ' +
-        earthquake.time +
+        '발생 시간: ' +
+        formatTime(occurrenceTime) +
         '\n' +
-        '국내 쓰나미 여부: ' +
-        domesticTsunami +
-        '\n' +
-        '해외 쓰나미 여부: ' +
-        foreignTsunami +
+        '업뎃 시간: ' +
+        formatTime(reportTime) +
         '\n' +
         '진원지: ' +
         googleMapUrl
@@ -508,14 +531,26 @@ function response(
     }
   }
 
-  if (msg.startsWith('지진')) {
+  // if (msg.startsWith('지진')) {
+  //   replier.reply(fetchEarthquakeInfo(0));
+  // } else if (msg.startsWith('지진1')) {
+  //   replier.reply(fetchEarthquakeInfo(1));
+  // } else if (msg.startsWith('지진2')) {
+  //   replier.reply(fetchEarthquakeInfo(2));
+  // } else if (msg.startsWith('지진3')) {
+  //   replier.reply(fetchEarthquakeInfo(3));
+  // }
+  if (msg === '지진') {
     replier.reply(fetchEarthquakeInfo(0));
-  } else if (msg.startsWith('지지진')) {
-    replier.reply(fetchEarthquakeInfo(1));
-  } else if (msg.startsWith('지지지진')) {
-    replier.reply(fetchEarthquakeInfo(2));
-  } else if (msg.startsWith('지지지지진')) {
-    replier.reply(fetchEarthquakeInfo(3));
+  } else if (msg.startsWith('지진')) {
+    const index = parseInt(msg.replace('지진', ''), 10);
+    if (!isNaN(index)) {
+      replier.reply(fetchEarthquakeInfo(index));
+    } else {
+      replier.reply(
+        '올바른 명령어 형식이 아닙니다. "지진", "지진1", "지진2"와 같은 형식을 사용하세요.'
+      );
+    }
   } else if (
     msg === '일생쓰 야후뉴스 톱푸~' ||
     msg === '일생쓰 야후뉴스 메인~' ||
