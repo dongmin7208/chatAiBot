@@ -396,7 +396,7 @@ function fetchEarthquakeInfo(index) {
           seconds
         );
       }
-
+      const displayDepth = depth < 1 ? '10km' : depth.toFixed(2) + 'km';
       return (
         '‼️지진 정보‼️\n' +
         '지역: ' +
@@ -408,8 +408,8 @@ function fetchEarthquakeInfo(index) {
         magnitude +
         '도\n' +
         '깊이: ' +
-        depth.toFixed(2) +
-        'km\n' +
+        displayDepth +
+        '\n' +
         '발생 시간: ' +
         formatTime(occurrenceTime) +
         '\n' +
@@ -531,15 +531,6 @@ function response(
     }
   }
 
-  // if (msg.startsWith('지진')) {
-  //   replier.reply(fetchEarthquakeInfo(0));
-  // } else if (msg.startsWith('지진1')) {
-  //   replier.reply(fetchEarthquakeInfo(1));
-  // } else if (msg.startsWith('지진2')) {
-  //   replier.reply(fetchEarthquakeInfo(2));
-  // } else if (msg.startsWith('지진3')) {
-  //   replier.reply(fetchEarthquakeInfo(3));
-  // }
   if (msg === '지진') {
     replier.reply(fetchEarthquakeInfo(0));
   } else if (msg.startsWith('지진')) {
@@ -547,9 +538,7 @@ function response(
     if (!isNaN(index)) {
       replier.reply(fetchEarthquakeInfo(index));
     } else {
-      replier.reply(
-        '올바른 명령어 형식이 아닙니다. "지진", "지진1", "지진2"와 같은 형식을 사용하세요.'
-      );
+      return;
     }
   } else if (
     msg === '일생쓰 야후뉴스 톱푸~' ||
