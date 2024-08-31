@@ -5,6 +5,178 @@ const NEW_OPENAI_API_KEY = require('apiKey').NEW_OPENAI_API_KEY;
 const STOCK_API_KEY = require('apiKey').STOCK_API_KEY;
 const EXCHANGE_RATE_API_KEY = require('apiKey').EXCHANGE_RATE_API_KEY;
 const RAPIDAPI_KEY = require('apiKey').RAPIDAPI_KEY;
+const TRAIN_API_KEY = require('apiKey').TRAIN_API_KEY;
+const CHALLENGE_TRAIN_API_KEY = require('apiKey').CHALLENGE_TRAIN_API_KEY;
+function fetchLottoResults() {
+  var baseUrl =
+    'https://www.mizuhobank.co.jp/retail/takarakuji/loto/loto7/csv/A103';
+  var results = '';
+
+  for (var i = 585; i > 1; i--) {
+    var url = baseUrl + ('0000' + i).slice(-4) + '.CSV';
+
+    try {
+      var response = org.jsoup.Jsoup.connect(url)
+        .header('Accept', 'text/plain, */*; q=0.01')
+        .header('Accept-Encoding', 'gzip, deflate, br, zstd')
+        .header(
+          'Accept-Language',
+          'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7,ja;q=0.6'
+        )
+        .header(
+          'User-Agent',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        )
+        .ignoreContentType(true)
+        .get();
+
+      var data = response.body().text();
+
+      var roundStartIndex = data.indexOf('第');
+      var roundEndIndex = data.indexOf('回ロト７');
+      var roundInfo = data.substring(roundStartIndex, roundEndIndex + 3);
+
+      var mainNumbersStartIndex = data.indexOf('本数字,') + 4;
+      var mainNumbersEndIndex = data.indexOf('ボーナス数字') - 1;
+      var mainNumbers = data
+        .substring(mainNumbersStartIndex, mainNumbersEndIndex)
+        .replace(/,/g, ',');
+
+      results += roundInfo + '\n' + mainNumbers + '\n\n';
+    } catch (e) {
+      results +=
+        'Error fetching data for round ' + i + ': ' + e.message + '\n\n';
+    }
+  }
+
+  return results;
+}
+
+// 열차 운행 정보를 가져오기 위한 함수
+function fetchTrainInformation() {
+  // Tokyo Metro와 Keikyu API를 각각 호출할 URL
+  const urls = [
+    'https://api.odpt.org/api/v4/odpt:TrainInformation?acl:consumerKey=' +
+      TRAIN_API_KEY,
+    'https://api-challenge2024.odpt.org/api/v4/odpt:TrainInformation?odpt:operator=odpt.Operator:Keikyu&acl:consumerKey=' +
+      CHALLENGE_TRAIN_API_KEY,
+    'https://api-challenge2024.odpt.org/api/v4/odpt:TrainInformation?odpt:operator=odpt.Operator:Tokyu&acl:consumerKey=' +
+      CHALLENGE_TRAIN_API_KEY,
+    'https://api-challenge2024.odpt.org/api/v4/odpt:Train?odpt:operator=odpt.Operator:JR-East&acl:consumerKey=' +
+      CHALLENGE_TRAIN_API_KEY,
+  ];
+
+  let allTrainInfo = '';
+
+  urls.forEach((url) => {
+    try {
+      const response = org.jsoup.Jsoup.connect(url)
+        .ignoreContentType(true)
+        .execute()
+        .body();
+
+      const jsonResponse = JSON.parse(response);
+      if (jsonResponse.length > 0) {
+        jsonResponse.forEach((info) => {
+          let railway = 'Unknown Line';
+          let statusTextJa = '운행 정보 없음';
+          let delayInfo = '';
+
+          if (url.includes('odpt:TrainInformation')) {
+            if (
+              info['odpt:trainInformationText'] &&
+              info['odpt:trainInformationText']['ja']
+            ) {
+              statusTextJa = info['odpt:trainInformationText']['ja'];
+            }
+
+            if (info['owl:sameAs'] && info['owl:sameAs'].includes('Keikyu')) {
+              railway = 'Keikyu Line';
+            } else if (info['odpt:railway']) {
+              railway = info['odpt:railway']
+                .replace('odpt.Railway:', '')
+                .replace(/\./g, ' ');
+            }
+          } else if (url.includes('odpt:Train')) {
+            // JR East API의 경우
+            if (info['odpt:delay'] === 0) {
+              return; // 지연 시간이 0일 경우 정상 운행이므로 출력하지 않음
+            } else {
+              delayInfo = '\n지연 시간: ' + info['odpt:delay'] + '분';
+            }
+
+            if (info['odpt:railway']) {
+              railway = info['odpt:railway']
+                .replace('odpt.Railway:', '')
+                .replace(/\./g, ' ');
+            }
+            statusTextJa = '운행 중: ' + info['odpt:trainType'];
+          }
+
+          const updateTime = new Date(info['dc:date']);
+
+          // 정상 운행 상태를 필터링
+          if (
+            statusTextJa === '現在、平常どおり運転しています。' ||
+            statusTextJa === '現在、平常通り運転しています。' ||
+            statusTextJa === '平常通り運転しています。' ||
+            statusTextJa === '平常運行' ||
+            statusTextJa === '平常通り運転しております。' ||
+            statusTextJa === 'Normal service' ||
+            statusTextJa === '現在、１５分以上の遅延はありません。' ||
+            statusTextJa === '京急線は平常通り運転しています。' ||
+            statusTextJa.includes('は、平常通り運転しています。')
+          ) {
+            return;
+          }
+
+          // railway와 statusTextJa를 번역하여 출력
+          let translatedRailway;
+          let translatedStatus;
+          try {
+            translatedRailway = translateText('KO', railway, 'JA');
+            translatedStatus = translateText('KO', statusTextJa, 'JA');
+          } catch (error) {
+            translatedRailway = railway;
+            translatedStatus = 'Error translating text.';
+          }
+
+          allTrainInfo +=
+            '노선: ' +
+            translatedRailway +
+            ' (' +
+            railway +
+            ')' +
+            '\n' +
+            '내용: ' +
+            translatedStatus +
+            '\n' +
+            statusTextJa +
+            delayInfo +
+            '\n' +
+            '시간: ' +
+            formatTime(updateTime) +
+            '\n\n';
+        });
+
+        // 모든 문제 있는 열차 정보를 allTrainInfo에 추가
+        // allTrainInfo += trainInfo;
+      }
+    } catch (e) {
+      allTrainInfo +=
+        'Error fetching train information from ' +
+        url +
+        ': ' +
+        e.message +
+        '\n';
+    }
+  });
+
+  // 모든 API 호출 후 문제가 있는 열차 정보가 있을 경우 반환, 없을 경우 대체 메시지
+  return allTrainInfo.length > 0
+    ? allTrainInfo
+    : '🚉 현재 운행 문제는 없습니다.';
+}
 
 function fetchArticlesTitlesFromDaum() {
   var url =
@@ -161,12 +333,6 @@ function getStockSymbolFromMessage(msg) {
   }
 
   return null;
-}
-
-// 일본어 포함 여부 확인
-function containsJapanese(text) {
-  const japanesePattern = /[\u3040-\u30FF\u4E00-\u9FFF]/;
-  return japanesePattern.test(text);
 }
 
 function convertHiraganaToKoreanPronunciation(hiraganaText) {
@@ -342,61 +508,39 @@ function getSuffix(nickname) {
 
 // 지진 정보 가져오기
 function fetchEarthquakeInfo(index) {
-  const url = 'https://www.jma.go.jp/bosai/quake/data/list.json';
+  const url = 'https://api.p2pquake.net/v2/jma/quake';
   try {
     const response = org.jsoup.Jsoup.connect(url)
       .ignoreContentType(true)
       .execute()
       .body();
     const jsonResponse = JSON.parse(response);
-
     if (jsonResponse.length > index) {
       const quake = jsonResponse[index];
-      const location = quake.anm; // 일본어 지역명
+      const earthquake = quake.earthquake;
+      const location = earthquake.hypocenter.name;
       const translatedLocation = translateText('KO', location);
-      const magnitude = quake.mag;
-      // const maxIntensity = quake.maxi;
-      const depth = parseInt(quake.acd, 10) / 1000; // 깊이를 km로 변환
-      const occurrenceTime = new Date(quake.at); // 발생 시간
-      const reportTime = new Date(quake.rdt); // 보고 시간
+      const latitude = earthquake.hypocenter.latitude;
+      const longitude = earthquake.hypocenter.longitude;
+      const magnitude = earthquake.hypocenter.magnitude;
+      const depth = earthquake.hypocenter.depth;
+      const createdTime = quake.created_at;
+      const time = new Date(earthquake.time);
+      const currentTime = new Date();
+      const domesticTsunami = earthquake.domesticTsunami;
+      const foreignTsunami = earthquake.foreignTsunami;
 
-      // cod에서 위도와 경도를 추출
-      const latitudeMatch = quake.cod.match(/\+([\d.]+)/);
-      const longitudeMatch = quake.cod.match(/\+([\d.]+)/g);
-      const latitude = latitudeMatch ? latitudeMatch[1] : 'Unknown';
-      const longitude = longitudeMatch
-        ? longitudeMatch[1].replace('+', '')
-        : 'Unknown';
+      const timeDifference = Math.abs(currentTime - time) / (1000 * 60);
+
+      if (timeDifference < 5) {
+        return '일생쓰';
+      }
 
       const googleMapUrl =
         'https://www.google.com/maps/search/?api=1&query=' +
         latitude +
         ',' +
         longitude;
-
-      // 시간을 보기 좋게 포맷팅하는 함수
-      function formatTime(date) {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        const seconds = String(date.getSeconds()).padStart(2, '0');
-        return (
-          year +
-          '/' +
-          month +
-          '/' +
-          day +
-          ' ' +
-          hours +
-          ':' +
-          minutes +
-          ':' +
-          seconds
-        );
-      }
-      const displayDepth = depth < 1 ? '10km' : depth.toFixed(2) + 'km';
       return (
         '‼️지진 정보‼️\n' +
         '지역: ' +
@@ -408,13 +552,19 @@ function fetchEarthquakeInfo(index) {
         magnitude +
         '도\n' +
         '깊이: ' +
-        displayDepth +
+        depth +
+        'km\n' +
+        '발생시간: ' +
+        earthquake.time +
         '\n' +
-        '발생 시간: ' +
-        formatTime(occurrenceTime) +
+        '업뎃시간: ' +
+        createdTime +
         '\n' +
-        '업뎃 시간: ' +
-        formatTime(reportTime) +
+        '국내 쓰나미 여부: ' +
+        domesticTsunami +
+        '\n' +
+        '해외 쓰나미 여부: ' +
+        foreignTsunami +
         '\n' +
         '진원지: ' +
         googleMapUrl
@@ -425,6 +575,19 @@ function fetchEarthquakeInfo(index) {
   } catch (e) {
     return 'Error fetching earthquake information: ' + e.message;
   }
+}
+
+// 시간을 보기 좋게 포맷팅하는 함수
+function formatTime(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+  return (
+    year + '/' + month + '/' + day + ' ' + hours + ':' + minutes + ':' + seconds
+  );
 }
 
 // 메인 응답 함수
@@ -449,6 +612,10 @@ function response(
       replier.reply(stockSymbol + ': ' + stockPrice);
       return;
     }
+    if (msg.startsWith('로또전회차')) {
+      replier.reply(fetchLottoResults());
+      return;
+    }
 
     if (msg.startsWith('일생쓰 엔화')) {
       var yenInfo = getYenExchangeInfoFromAPI();
@@ -459,6 +626,11 @@ function response(
     if (msg === '일생쓰 동유모 무료나눔') {
       let articles = fetchArticlesTitlesFromDaum();
       replier.reply(articles);
+      return;
+    }
+    if (msg === '일생쓰 도쿄열차') {
+      const trainInfo = fetchTrainInformation();
+      replier.reply(trainInfo);
       return;
     }
 
@@ -531,10 +703,10 @@ function response(
     }
   }
 
-  if (msg === '지진') {
+  if (msg === '지진결과') {
     replier.reply(fetchEarthquakeInfo(0));
-  } else if (msg.startsWith('지진')) {
-    const index = parseInt(msg.replace('지진', ''), 10);
+  } else if (msg.startsWith('지진결과')) {
+    const index = parseInt(msg.replace('지진결과', ''), 10);
     if (!isNaN(index)) {
       replier.reply(fetchEarthquakeInfo(index));
     } else {
@@ -605,11 +777,14 @@ function response(
       helpMessage += '4. 일생쓰 야후뉴스 톱푸~\n';
       helpMessage += '5. 일생쓰 야후뉴스 칸코쿠~\n';
       helpMessage += '6. 일생쓰 동유모 무료나눔\n';
-      helpMessage += '7. 일생쓰 엔화\n';
-      helpMessage += '8. 오늘몇월몇일?\n';
-      helpMessage += '9. /네이버 [검색어]\n';
-      helpMessage += '10. /구글 [검색어]\n';
-      helpMessage += '11. /야후 [검색어]\n';
+      helpMessage += '7. 일생쓰 도쿄열차\n';
+      helpMessage += '8. 일생쓰 엔화\n';
+      helpMessage += '9. 일생쓰 오늘몇월몇일?\n';
+      helpMessage += '10. /네이버 [검색어]\n';
+      helpMessage += '11. /구글 [검색어]\n';
+      helpMessage += '12. /야후 [검색어]\n';
+      helpMessage += '13. 히라가나 [일본어]\n';
+      helpMessage += '14. 한국어 [일본어]\n';
       replier.reply(helpMessage);
     } else if (translateMatch) {
       let targetLang;
@@ -651,6 +826,7 @@ function response(
         cmd.startsWith('오늘이언제?') ||
         cmd.startsWith('오늘은?') ||
         cmd.startsWith('오늘?') ||
+        cmd.startsWith('오늘') ||
         cmd.startsWith('현재날짜?')
       ) {
         replier.reply(getCurrentDate());
